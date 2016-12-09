@@ -25,14 +25,19 @@ properties:
     default: 8844
 
   # Encryption properties
+  # TODO: make this a collection
   credhub.encryption.provider:
-    description: "HSM or dev_internal encryption"
+    description: "HSM or dev_internal encryption" # TODO: mention DSM
     default: "hsm"
   credhub.encryption.dev_key:
     description: "AES key to be used for encryption during development"
     default: "D673ACD01DA091B08144FBC8C0B5F524"
 
+  # TODO: make a collection for encryption keys
+  # TODO: one key and one key ONLY may be active in encryption keys
+
   # HSM properties
+  # TODO: these will be nested under providers
   credhub.encryption.hsm.host:
     description: "The IP address of the HSM"
   credhub.encryption.hsm.port:
