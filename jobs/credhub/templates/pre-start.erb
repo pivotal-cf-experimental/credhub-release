@@ -25,8 +25,9 @@ chmod 700 /var/vcap/jobs/credhub/config
 %>
 
 function init_keystore_and_certs() {
+  echo "Updating application.yml"
   sed -i "s/KEY_STORE_PASSWORD_PLACEHOLDER/${KEYSTORE_PASSWORD}/g" /var/vcap/jobs/credhub/config/application.yml
-
+  echo "Cleaning up cert, private key, and database cert files."
   rm -f $CERT_FILE $PRIV_KEY_FILE $DATABASE_CA_CERT
 
   cat > $CERT_FILE <<EOL
@@ -44,7 +45,7 @@ EOL
 EOL
 
   <% end %>
-
+  echo "Installing certs."
   /var/vcap/jobs/credhub/bin/install_crt.sh $CERT_FILE $PRIV_KEY_FILE $DATABASE_CA_CERT $KEYSTORE_PASSWORD
 }
 
@@ -57,7 +58,9 @@ fi
 
 <% if active_provider['type'] == 'hsm' %>
 cat > /var/vcap/jobs/credhub/config/hsm_cert.pem <<EOL
-<%= active_provider['certificate'] %>
+<% active_provider['servers'].each do |hsm| %>
+<%= hsm['certificate'] %>
+<% end %>
 EOL
 
 cat > /var/vcap/jobs/credhub/config/client_cert.pem <<EOL
@@ -72,6 +75,49 @@ ln -f -s /var/vcap/jobs/credhub/config/encryption.conf /etc/Chrystoki.conf
 
 cp /var/vcap/packages/lunaclient/jsp/lib/LunaProvider.jar $JAVA_HOME/jre/lib/ext/
 cp /var/vcap/packages/lunaclient/jsp/lib/libLunaAPI.so $JAVA_HOME/jre/lib/ext/
+
+# this is where we do the HA HSM magic - but only one time!
+PATH=$PATH:/var/vcap/packages/lunaclient/bin
+if [ $(vtl haAdmin show | grep -c 'Group Members') -eq 0 ]; then
+echo "HSM HA appears to be uninitialized. Performing HA HSM setup."
+<%
+    require 'securerandom'
+
+hsm_servers = active_provider['servers']
+primary_server = hsm_servers.shift
+primary_serial_number = primary_server['partition_serial_number']
+ha_group_label = "credhub-#{SecureRandom.uuid}"
+%>
+
+echo "Creating new HA group"
+echo "Executing command: echo copy | vtl haAdmin newGroup -label "<%= ha_group_label %>" -serialNum <%= primary_serial_number %> -password <%= active_provider['partition_password'] %>"
+NEW_GROUP_OUTPUT=$(echo copy | vtl haAdmin newGroup -label "<%= ha_group_label %>" -serialNum <%= primary_serial_number %> -password <%= active_provider['partition_password'] %>)
+GROUPID=$(echo $NEW_GROUP_OUTPUT | grep -o -E 'HA Group Number: .*' | awk '{print $4}')
+
+echo "Adding members to HA group"
+<% hsm_servers.each do |hsm_server| %>
+echo "Adding <%= hsm_server['partition_serial_number'] %> to HSM group"
+echo "Excuting command: echo copy | vtl haAdmin addMember -group $GROUPID -serialNum <%= hsm_server['partition_serial_number'] %> -password <%= active_provider['partition_password'] %>"
+echo copy | vtl haAdmin addMember -group $GROUPID -serialNum <%= hsm_server['partition_serial_number'] %> -password <%= active_provider['partition_password'] %>
+echo "Got status code: $?"
+<% end %>
+echo "Synchronizing HA group."
+vtl haAdmin synchronize -group $GROUPID -password <%= active_provider['partition_password'] %>
+echo "Got status code: $?"
+
+echo "setup autorecovery retries"
+vtl haAdmin autoRecovery -retry -1
+echo "Got status code: $?"
+echo "setup autorecovery interval"
+vtl haAdmin autoRecovery -interval 60
+echo "Got status code: $?"
+
+echo "setup HA logging"
+vtl haAdmin HALog -enable -path /var/vcap/sys/log/credhub/
+echo "Got status code: $?"
+else
+  echo "HSM HA appears to be initialized. Skipping HSM HA setup."
+fi
 
 <% elsif active_provider['type'] == 'dsm' %>
 dpkg -i /var/vcap/packages/dsm-client/libapr1_1.5.0-1_amd64.deb

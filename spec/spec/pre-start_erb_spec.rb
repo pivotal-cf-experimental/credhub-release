@@ -17,7 +17,9 @@ def render_pre_start_erb(data_storage_yaml, tls_yaml = '')
               providers:
                 - name: active_hsm
                   type: hsm
-                  certificate: "cert"
+                  servers:
+                  - certificate: "hsm_cert1"
+                  - certificate: "hsm_cert2"
                   client_certificate: "client_cert"
                   client_key: "key"
             #{tls_yaml.empty? ? '' : tls_yaml}
@@ -33,6 +35,11 @@ end
 
 RSpec.describe "the template" do
   context "with hsm" do
+    it "should add all hsm server certificates to the hsm_cert.pem" do
+      result = render_pre_start_erb('{ }', 'tls: { certificate: "foo", private_key: "bar" }')
+      expect(result).to include "cat > /var/vcap/jobs/credhub/config/hsm_cert.pem <<EOL\n\nhsm_cert1\n\nhsm_cert2\n\nEOL"
+    end
+
     context "with TLS properties" do
       it "raises an error when either credhub.tls.certificate or credhub.tls.private_key is missing" do
         expect {render_pre_start_erb('{ }', 'tls: { certificate: "foo" }')}
