@@ -57,97 +57,100 @@ else
 fi
 
 <% if active_provider['type'] == 'hsm' %>
-cat > /var/vcap/jobs/credhub/config/hsm_cert.pem <<EOL
-<% active_provider['servers'].each do |hsm| %>
-<%= hsm['certificate'] %>
-<% end %>
-EOL
+  cat > /var/vcap/jobs/credhub/config/hsm_cert.pem <<EOL
+  <% active_provider['servers'].each do |hsm| %>
+  <%= hsm['certificate'] %>
+  <% end %>
+  EOL
 
-cat > /var/vcap/jobs/credhub/config/client_cert.pem <<EOL
-<%= active_provider['client_certificate'] %>
-EOL
+  cat > /var/vcap/jobs/credhub/config/client_cert.pem <<EOL
+  <%= active_provider['client_certificate'] %>
+  EOL
 
-cat > /var/vcap/jobs/credhub/config/client_key.pem <<EOL
-<%= active_provider['client_key'] %>
-EOL
+  cat > /var/vcap/jobs/credhub/config/client_key.pem <<EOL
+  <%= active_provider['client_key'] %>
+  EOL
 
-ln -f -s /var/vcap/jobs/credhub/config/encryption.conf /etc/Chrystoki.conf
+  ln -f -s /var/vcap/jobs/credhub/config/encryption.conf /etc/Chrystoki.conf
 
-cp /var/vcap/packages/lunaclient/jsp/lib/LunaProvider.jar $JAVA_HOME/jre/lib/ext/
-cp /var/vcap/packages/lunaclient/jsp/lib/libLunaAPI.so $JAVA_HOME/jre/lib/ext/
+  cp /var/vcap/packages/lunaclient/jsp/lib/LunaProvider.jar $JAVA_HOME/jre/lib/ext/
+  cp /var/vcap/packages/lunaclient/jsp/lib/libLunaAPI.so $JAVA_HOME/jre/lib/ext/
 
-# this is where we do the HA HSM magic - but only one time!
-PATH=$PATH:/var/vcap/packages/lunaclient/bin
+  # this is where we do the HA HSM magic - but only one time!
+  PATH=$PATH:/var/vcap/packages/lunaclient/bin
 
-if [ $(vtl haAdmin show | grep -c 'Group Members') -eq 0 ]; then
-echo "HSM HA appears to be uninitialized. Performing HA HSM setup."
-<%
-hsm_servers = active_provider['servers']
-primary_server = hsm_servers.shift
-primary_serial_number = primary_server['partition_serial_number']
-ha_group_label = active_provider['partition']
-%>
+  if [ $(vtl haAdmin show | grep -c 'Group Members') -eq 0 ]; then
+    echo "HSM HA appears to be uninitialized. Performing HA HSM setup."
+    <%
+    hsm_servers = active_provider['servers']
+    primary_server = hsm_servers.shift
+    primary_serial_number = primary_server['partition_serial_number']
+    ha_group_label = active_provider['partition']
+    %>
 
-echo "Creating new HA group"
-echo "Executing command: echo copy | vtl haAdmin newGroup -label "<%= ha_group_label %>" -serialNum <%= primary_serial_number %> -password <%= active_provider['partition_password'] %>"
-NEW_GROUP_OUTPUT=$(echo copy | vtl haAdmin newGroup -label "<%= ha_group_label %>" -serialNum <%= primary_serial_number %> -password <%= active_provider['partition_password'] %>)
-GROUPID=$(echo $NEW_GROUP_OUTPUT | grep -o -E 'HA Group Number: .*' | awk '{print $4}')
+    echo "Creating new HA group"
+    echo "Executing command: echo copy | vtl haAdmin newGroup -label "<%= ha_group_label %>" -serialNum <%= primary_serial_number %> -password <%= active_provider['partition_password'] %>"
+    NEW_GROUP_OUTPUT=$(echo copy | vtl haAdmin newGroup -label "<%= ha_group_label %>" -serialNum <%= primary_serial_number %> -password <%= active_provider['partition_password'] %>)
+    GROUPID=$(echo $NEW_GROUP_OUTPUT | grep -o -E 'HA Group Number: .*' | awk '{print $4}')
 
-echo "Adding members to HA group"
-<% hsm_servers.each do |hsm_server| %>
-echo "Adding <%= hsm_server['partition_serial_number'] %> to HSM group"
-echo "Excuting command: echo copy | vtl haAdmin addMember -group $GROUPID -serialNum <%= hsm_server['partition_serial_number'] %> -password <%= active_provider['partition_password'] %>"
-echo copy | vtl haAdmin addMember -group $GROUPID -serialNum <%= hsm_server['partition_serial_number'] %> -password <%= active_provider['partition_password'] %>
-echo "Got status code: $?"
-<% end %>
-echo "Synchronizing HA group."
-vtl haAdmin synchronize -group $GROUPID -password <%= active_provider['partition_password'] %>
-echo "Got status code: $?"
+    echo "Adding members to HA group"
 
-echo "setup autorecovery retries"
-vtl haAdmin autoRecovery -retry -1
-echo "Got status code: $?"
-echo "setup autorecovery interval"
-vtl haAdmin autoRecovery -interval 60
-echo "Got status code: $?"
+    <% hsm_servers.each do |hsm_server| %>
+      echo "Adding <%= hsm_server['partition_serial_number'] %> to HSM group"
+      echo "Excuting command: echo copy | vtl haAdmin addMember -group $GROUPID -serialNum <%= hsm_server['partition_serial_number'] %> -password <%= active_provider['partition_password'] %>"
+      echo copy | vtl haAdmin addMember -group $GROUPID -serialNum <%= hsm_server['partition_serial_number'] %> -password <%= active_provider['partition_password'] %>
+      echo "Got status code: $?"
+    <% end %>
 
-echo "setup HA logging"
-vtl haAdmin HALog -enable -path /var/vcap/sys/log/credhub/
-echo "Got status code: $?"
+    echo "Synchronizing HA group."
+    vtl haAdmin synchronize -group $GROUPID -password <%= active_provider['partition_password'] %>
+    echo "Got status code: $?"
 
-vtl haAdmin haOnly -enable
+    echo "setup autorecovery retries"
+    vtl haAdmin autoRecovery -retry -1
+    echo "Got status code: $?"
+    echo "setup autorecovery interval"
+    vtl haAdmin autoRecovery -interval 60
+    echo "Got status code: $?"
 
-else
-  echo "HSM HA appears to be initialized. Skipping HSM HA setup."
-fi
+    echo "setup HA logging"
+    vtl haAdmin HALog -enable -path /var/vcap/sys/log/credhub/
+    echo "Got status code: $?"
+
+    vtl haAdmin haOnly -enable
+
+  else
+    echo "HSM HA appears to be initialized. Skipping HSM HA setup."
+  fi
 
 <% elsif active_provider['type'] == 'dsm' %>
-dpkg -i /var/vcap/packages/dsm-client/libapr1_1.5.0-1_amd64.deb
-dpkg -i /var/vcap/packages/dsm-client/dsm-client_1.2.10136.1262.DEBIAN_amd64.deb
+  dpkg -i /var/vcap/packages/dsm-client/libapr1_1.5.0-1_amd64.deb
+  dpkg -i /var/vcap/packages/dsm-client/dsm-client_1.2.10136.1262.DEBIAN_amd64.deb
 
-cp /usr/lib/dsm/dsm-advapi-1.0.jar $JAVA_HOME/jre/lib/ext/
+  cp /usr/lib/dsm/dsm-advapi-1.0.jar $JAVA_HOME/jre/lib/ext/
 
-ln -f -s /var/vcap/jobs/credhub/config/encryption.conf /etc/dsm/client.conf
-<% (active_provider['servers'] || []).each do |server| %>
-HOST_PRIVATE_KEY_FILE=/var/vcap/jobs/credhub/config/<%= server['host'] %>.pem
+  ln -f -s /var/vcap/jobs/credhub/config/encryption.conf /etc/dsm/client.conf
 
-cat > $HOST_PRIVATE_KEY_FILE <<EOL
-<%= server['ssh_private_key'] %>
-EOL
+  <% (active_provider['servers'] || []).each do |server| %>
+    HOST_PRIVATE_KEY_FILE=/var/vcap/jobs/credhub/config/<%= server['host'] %>.pem
 
-chmod 400 $HOST_PRIVATE_KEY_FILE
+    cat > $HOST_PRIVATE_KEY_FILE <<EOL
+    <%= server['ssh_private_key'] %>
+    EOL
 
-DSMUTIL_OUTPUT=$(ssh -oStrictHostKeyChecking=no -i $HOST_PRIVATE_KEY_FILE <%= server['user'] %>@<%= server['host'] %> "dsmutil agent create -u ${HOSTNAME} -p <%= server['partition'] %>")
+    chmod 400 $HOST_PRIVATE_KEY_FILE
 
-if [[ "$DSMUTIL_OUTPUT" =~ ([0-9]+) ]]; then
-  PIN=${BASH_REMATCH[0]}
-else
-  exit 1
-fi
+    DSMUTIL_OUTPUT=$(ssh -oStrictHostKeyChecking=no -i $HOST_PRIVATE_KEY_FILE <%= server['user'] %>@<%= server['host'] %> "dsmutil agent create -u ${HOSTNAME} -p <%= server['partition'] %>")
 
-dsmcl register -p "$PIN"
+    if [[ "$DSMUTIL_OUTPUT" =~ ([0-9]+) ]]; then
+      PIN=${BASH_REMATCH[0]}
+    else
+      exit 1
+    fi
 
-rm $HOST_PRIVATE_KEY_FILE
+    dsmcl register -p "$PIN"
 
-<% end %>
+    rm $HOST_PRIVATE_KEY_FILE
+
+  <% end %>
 <% end %>
