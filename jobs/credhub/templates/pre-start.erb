@@ -89,7 +89,7 @@ fi
     %>
 
     echo "Creating new HA group"
-    echo "Executing command: echo copy | vtl haAdmin newGroup -label "<%= ha_group_label %>" -serialNum <%= primary_serial_number %> -password <%= active_provider['partition_password'] %>"
+
     NEW_GROUP_OUTPUT=$(echo copy | vtl haAdmin newGroup -label "<%= ha_group_label %>" -serialNum <%= primary_serial_number %> -password <%= active_provider['partition_password'] %>)
     GROUPID=$(echo $NEW_GROUP_OUTPUT | grep -o -E 'HA Group Number: .*' | awk '{print $4}')
 
@@ -97,7 +97,7 @@ fi
 
     <% hsm_servers.each do |hsm_server| %>
       echo "Adding <%= hsm_server['partition_serial_number'] %> to HSM group"
-      echo "Excuting command: echo copy | vtl haAdmin addMember -group $GROUPID -serialNum <%= hsm_server['partition_serial_number'] %> -password <%= active_provider['partition_password'] %>"
+
       echo copy | vtl haAdmin addMember -group $GROUPID -serialNum <%= hsm_server['partition_serial_number'] %> -password <%= active_provider['partition_password'] %>
       echo "Got status code: $?"
     <% end %>
