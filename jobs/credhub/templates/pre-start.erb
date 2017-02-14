@@ -6,6 +6,7 @@ CERT_FILE=/var/vcap/jobs/credhub/config/cert.crt
 PRIV_KEY_FILE=/var/vcap/jobs/credhub/config/priv.key
 DATABASE_CA_CERT=/var/vcap/jobs/credhub/config/database_ca.crt
 KEYSTORE_PASSWORD=$(< /dev/urandom tr -dc _A-Z-a-z-0-9 | head -c32)
+CREDHUB_MTLS_TRUST_STORE_PATH=/var/vcap/jobs/credhub/config/mtls_trust_store.jks
 export JAVA_HOME=/var/vcap/packages/openjdk_1.8.0/jdk
 
 chown -R vcap /var/vcap/jobs/credhub/config
@@ -43,6 +44,16 @@ EOL
 <%= tls_ca %>
 EOL
 
+  <% end %>
+
+  <% if_p('credhub.authentication.mutual_tls.trusted_cas') do |ca_certs| %>
+    <% ca_certs.each do |ca_cert| %>
+      cat > /tmp/mutual_tls_ca_cert.crt <<EOL
+<%= ca_cert %>
+EOL
+      $JDK_HOME/bin/keytool -import -noprompt -keystore $CREDHUB_MTLS_TRUST_STORE_PATH -storepass $KEYSTORE_PASSWORD -file /tmp/mutual_tls_ca_cert.crt
+      rm /tmp/mutual_tls_ca_cert.crt
+    <% end %>
   <% end %>
 
   /var/vcap/jobs/credhub/bin/install_crt.sh $CERT_FILE $PRIV_KEY_FILE $DATABASE_CA_CERT $KEYSTORE_PASSWORD

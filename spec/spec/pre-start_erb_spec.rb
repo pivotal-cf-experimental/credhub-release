@@ -5,7 +5,7 @@ require 'yaml'
 require 'json'
 require 'fileutils'
 
-def render_pre_start_erb(data_storage_yaml, tls_yaml = '')
+def render_pre_start_erb(data_storage_yaml, authentication_yaml: '', tls_yaml: 'tls: { certificate: "foo", private_key: "bar" }')
   option_yaml = <<-EOF
         properties:
           credhub:
@@ -23,6 +23,7 @@ def render_pre_start_erb(data_storage_yaml, tls_yaml = '')
                   client_certificate: "client_cert"
                   client_key: "key"
             #{tls_yaml.empty? ? '' : tls_yaml}
+            #{authentication_yaml.empty? ? '' : authentication_yaml}
             data_storage:
               #{data_storage_yaml}
   EOF
@@ -34,33 +35,49 @@ def render_pre_start_erb(data_storage_yaml, tls_yaml = '')
 end
 
 RSpec.describe "the template" do
+  context "authentication section" do
+    it "should dump certs to the keytool" do
+      result = render_pre_start_erb('{ tls_ca: "my_tls_ca" }', authentication_yaml: <<-AUTH.strip)
+            authentication:
+              mutual_tls:
+                trusted_cas:
+                - |
+                  foo
+                - |
+                  bar
+      AUTH
+      expect(result).to include "rm /tmp/mutual_tls_ca_cert.crt"
+      expect(result).to include "cat > /tmp/mutual_tls_ca_cert.crt\nfoo\nEOL"
+    end
+  end
+
   context "with hsm" do
     context "with TLS properties" do
       it "raises an error when either credhub.tls.certificate or credhub.tls.private_key is missing" do
-        expect {render_pre_start_erb('{ }', 'tls: { certificate: "foo" }')}
+        expect {render_pre_start_erb('{ }', tls_yaml: 'tls: { certificate: "foo" }')}
             .to raise_error("credhub.tls.certificate and credhub.tls.private_key must both be set.")
-        expect {render_pre_start_erb('{ }', 'tls: { certificate: "foo" }')}
+        expect {render_pre_start_erb('{ }', tls_yaml: 'tls: { certificate: "foo" }')}
             .to raise_error("credhub.tls.certificate and credhub.tls.private_key must both be set.")
-        expect {render_pre_start_erb('{ }', 'tls: { }')}
+        expect {render_pre_start_erb('{ }', tls_yaml: 'tls: { }')}
             .to raise_error("credhub.tls.certificate and credhub.tls.private_key must both be set.")
-        expect {render_pre_start_erb('{ }', '')}
+        expect {render_pre_start_erb('{ }', tls_yaml: '')}
             .to raise_error("credhub.tls.certificate and credhub.tls.private_key must both be set.")
       end
 
       it "adds .pem files when both credhub.tls.certificate and credhub.tls.private_key are set" do
-        result = render_pre_start_erb('{ }', 'tls: { certificate: "foo", private_key: "bar" }')
+        result = render_pre_start_erb('{ }', tls_yaml: 'tls: { certificate: "foo", private_key: "bar" }')
         expect(result).to include "cat > $CERT_FILE <<EOL"
       end
     end
 
     context "with database storage properties" do
       it "does not create a DB client certificate file when credhub.data_storage.tls_ca is missing" do
-        result = render_pre_start_erb('{ }', 'tls: { certificate: "foo", private_key: "bar" }')
+        result = render_pre_start_erb('{ }')
         expect(result).not_to include "cat > $DATABASE_CA_CERT <<EOL"
       end
 
       it "creates a DB client certificate file when credhub.data_storage.tls_ca is set" do
-        result = render_pre_start_erb('{ tls_ca: "my_tls_ca" }', 'tls: { certificate: "foo", private_key: "bar" }')
+        result = render_pre_start_erb('{ tls_ca: "my_tls_ca" }')
         expect(result).to include "cat > $DATABASE_CA_CERT <<EOL"
       end
     end

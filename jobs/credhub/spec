@@ -92,6 +92,10 @@ properties:
       - name: dev-example-provider
         type: dev_internal
 
+# Authentication
+  credhub.authentication.mutual_tls.trusted_cas:
+    description: "An array of CAs whose signature indicates trust in a client certificate."
+
 # TLS configuration for the server
   credhub.tls:
     description: "Certificate and private key for TLS connection to CredHub API"
