@@ -47,7 +47,7 @@ RSpec.describe "the template" do
                   bar
       AUTH
       expect(result).to include "rm /tmp/mutual_tls_ca_cert.crt"
-      expect(result).to include "cat > /tmp/mutual_tls_ca_cert.crt\nfoo\nEOL"
+      expect(result).to include "cat > /tmp/mutual_tls_ca_cert.crt <<EOL\nfoo\n\nEOL"
     end
   end
 

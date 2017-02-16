@@ -51,7 +51,7 @@ EOL
       cat > /tmp/mutual_tls_ca_cert.crt <<EOL
 <%= ca_cert %>
 EOL
-      $JDK_HOME/bin/keytool -import -noprompt -keystore $CREDHUB_MTLS_TRUST_STORE_PATH -storepass $KEYSTORE_PASSWORD -file /tmp/mutual_tls_ca_cert.crt
+      $JAVA_HOME/bin/keytool -import -noprompt -keystore $CREDHUB_MTLS_TRUST_STORE_PATH -storepass $KEYSTORE_PASSWORD -file /tmp/mutual_tls_ca_cert.crt
       rm /tmp/mutual_tls_ca_cert.crt
     <% end %>
   <% end %>
