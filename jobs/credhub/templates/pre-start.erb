@@ -47,11 +47,11 @@ EOL
   <% end %>
 
   <% if_p('credhub.authentication.mutual_tls.trusted_cas') do |ca_certs| %>
-    <% ca_certs.each do |ca_cert| %>
+    <% ca_certs.each_with_index do |ca_cert, idx| %>
       cat > /tmp/mutual_tls_ca_cert.crt <<EOL
 <%= ca_cert %>
 EOL
-      $JAVA_HOME/bin/keytool -import -noprompt -keystore $CREDHUB_MTLS_TRUST_STORE_PATH -storepass $KEYSTORE_PASSWORD -file /tmp/mutual_tls_ca_cert.crt
+      $JAVA_HOME/bin/keytool -import -noprompt -alias <%= "mtls_ca_cert_#{idx}" %> -keystore $CREDHUB_MTLS_TRUST_STORE_PATH -storepass $KEYSTORE_PASSWORD -file /tmp/mutual_tls_ca_cert.crt
       rm /tmp/mutual_tls_ca_cert.crt
     <% end %>
   <% end %>
