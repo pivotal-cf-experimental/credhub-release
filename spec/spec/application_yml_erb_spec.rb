@@ -67,7 +67,7 @@ end
 
 RSpec.describe 'the template' do
   it 'sets the CredHub port correctly' do
-    result = render_erb_to_hash('{ type: "in-memory", database: "my_db_name" }')
+    result = render_erb_to_hash('{ type: "in-memory" }')
     expect(result['server']['port']).to eq 9000
   end
 
