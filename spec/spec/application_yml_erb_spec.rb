@@ -84,43 +84,47 @@ RSpec.describe 'the template' do
   end
 
   describe 'setting the database type' do
-    context 'with a username' do
-      it 'sets the datasource username' do
-        result = render_erb_to_hash('{ type: "in-memory", database: "my_db_name", username: "my_username" }')
-        expect(result['spring']['datasource']['username']).to eq 'my_username'
-      end
-    end
-
-    context 'when no datasource username is provided' do
-      it 'renders a helpful comment' do
-        result = render_erb_to_yaml('{ type: "in-memory", database: "my_db_name" }')
-        expect(result).to include 'username: # credhub.data_storage.username not set in your bosh deployment'
-      end
-    end
-
-    context 'with a password' do
-      it 'sets the datasource password' do
-        result = render_erb_to_hash('{ type: "in-memory", database: "my_db_name", username: "my_username", password: "my_password" }')
-        expect(result['spring']['datasource']['password']).to eq 'my_password'
-      end
-
-      it 'explicitly stringifies the password with " marks' do
-        result = render_erb_to_yaml('{ type: "in-memory", database: "my_db_name", username: "my_username", password: "my_password" }')
-        expect(result).to include 'password: "my_password"'
-      end
-    end
-
-    context 'when no datasource password is provided' do
-      it 'renders a helpful comment' do
-        result = render_erb_to_yaml('{ type: "in-memory", database: "my_db_name" }')
-        expect(result).to include 'password: # credhub.data_storage.password not set in your bosh deployment'
-      end
-    end
+    # context 'with a username' do
+    #   it 'sets the datasource username' do
+    #     result = render_erb_to_hash('{ type: "mysql", host: "host", database: "my_db_name", username: "my_username" }')
+    #     expect(result['spring']['datasource']['username']).to eq 'my_username'
+    #   end
+    # end
+    #
+    # context 'when no datasource username is provided' do
+    #   it 'does not include username in the result' do
+    #     result = render_erb_to_yaml('{ type: "in-memory", database: "my_db_name" }')
+    #     expect(result).to_not include 'username:'
+    #   end
+    # end
+    #
+    # context 'with a password' do
+    #   it 'sets the datasource password' do
+    #     result = render_erb_to_hash('{ type: "in-memory", database: "my_db_name", username: "my_username", password: "my_password" }')
+    #     expect(result['spring']['datasource']['password']).to eq 'my_password'
+    #   end
+    #
+    #   it 'explicitly stringifies the password with " marks' do
+    #     result = render_erb_to_yaml('{ type: "in-memory", database: "my_db_name", username: "my_username", password: "my_password" }')
+    #     expect(result).to include 'password: "my_password"'
+    #   end
+    # end
+    #
+    # context 'when no datasource password is provided' do
+    #   it 'renders a helpful comment' do
+    #     result = render_erb_to_yaml('{ type: "in-memory", database: "my_db_name" }')
+    #     expect(result).to include 'password: # credhub.data_storage.password not set in your bosh deployment'
+    #   end
+    # end
 
     context 'with in-memory' do
-      it 'sets url correctly for in-memory' do
+      it 'sets does not include username, password, database, host and port properties' do
         result = render_erb_to_hash('{ type: "in-memory", database: "my_db_name" }')
-        expect(result['spring']['datasource']['url']).to eq 'jdbc:h2:mem:my_db_name'
+        expect(result).to_not include 'username:'
+        expect(result).to_not include 'password:'
+        expect(result).to_not include 'database:'
+        expect(result).to_not include 'host:'
+        expect(result).to_not include 'port:'
       end
 
       it 'sets flyway location to be h2' do
@@ -130,8 +134,8 @@ RSpec.describe 'the template' do
     end
 
     context 'with Postgres' do
-      it 'sets url correctly for Postgres' do
-        result = render_erb_to_hash('{ type: "postgres", host: "my_host", port: 1234, database: "my_db_name" }')
+      it 'sets databse url correctly' do
+        result = render_erb_to_hash('{ type: "postgres", host: "my_host", port: 1234, database: "my_db_name", username: "my-username", password: "my-password" }')
         url = parse_database_url(result['spring']['datasource']['url'])
 
         expect(url['scheme']).to eq 'jdbc:postgresql://'
@@ -139,6 +143,16 @@ RSpec.describe 'the template' do
         expect(url['port']).to eq 1234
         expect(url['path']).to eq '/my_db_name'
         expect(url['query_params']['autoReconnect']).to eq ['true']
+      end
+
+      it 'sets username' do
+        result = render_erb_to_hash('{ type: "postgres", host: "my_host", port: 1234, database: "my_db_name", username: "my-username", password: "my-password" }')
+        expect(result['spring']['datasource']['username']).to eq('my-username')
+      end
+
+      it 'explicitly stringifies the password with " marks' do
+        result = render_erb_to_yaml('{ type: "postgres", host: "my_host", port: 1234, database: "my_db_name", username: "my-username", password: "my-password" }')
+        expect(result).to include 'password: "my_password"'
       end
 
       it 'sets flyway location to be postgres' do
@@ -161,6 +175,11 @@ RSpec.describe 'the template' do
         expect(url['query_params'].has_key?('useSSL')).to be false
         expect(url['query_params'].has_key?('requireSSL')).to be false
         expect(url['query_params'].has_key?('verifyServerCertificate')).to be false
+      end
+
+      it 'explicitly stringifies the password with " marks' do
+        result = render_erb_to_yaml('{ type: "mysql", host: "my_host", port: 1234, database: "my_db_name", require_tls: false }')
+        expect(result).to include 'password: "my_password"'
       end
 
       it 'sets flyway location to be mysql' do

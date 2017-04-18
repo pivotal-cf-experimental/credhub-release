@@ -15,31 +15,42 @@
       "ciphers" => "ECDHE-ECDSA-AES128-GCM-SHA256,ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES128-GCM-SHA256,ECDHE-RSA-AES256-GCM-SHA384"
     }
   }
-
-  # mTLS Config
-  if_p('credhub.authentication.mutual_tls.trusted_cas') do |cas|
-    server_config["ssl"]["client-auth"] = "want"
-    server_config["ssl"]["trust-store"] = "#{CREDHUB_CONF_DIR}/mtls_trust_store.jks"
-    server_config["ssl"]["trust-store-password"] = "MTLS_TRUST_STORE_PASSWORD_PLACEHOLDER"
-    server_config["ssl"]["trust-store-type"] = "JKS"
-  end
-
+#
+#  # mTLS Config
+#  if_p('credhub.authentication.mutual_tls.trusted_cas') do |cas|
+#    server_config["ssl"]["client-auth"] = "want"
+#    server_config["ssl"]["trust-store"] = "#{CREDHUB_CONF_DIR}/mtls_trust_store.jks"
+#    server_config["ssl"]["trust-store-password"] = "MTLS_TRUST_STORE_PASSWORD_PLACEHOLDER"
+#    server_config["ssl"]["trust-store-type"] = "JKS"
+#  end
+#
   application_config["server"] = server_config
 
   # Security Config
   application_config["security"] = {
-    "security" => {
-      "oauth2" => {
-        "resource" => {
-          "jwt" => {
-            "key-value" => p("credhub.authentication.uaa.verification_key")
-          }
+    "oauth2" => {
+      "resource" => {
+        "jwt" => {
+          "key-value" => p("credhub.authentication.uaa.verification_key")
         }
       }
     }
   }
 
+  # Auth Server
+  application_config["auth-server"] = {
+    "url" => p("credhub.authentication.uaa.url")
+  }
+
   # Database Config
+  application_config["spring"] = {
+    "jpa" => {
+      "hibernate" => {
+        "ddl-auto" => "validate"
+      }
+    }
+  }
+
   flyway_locations = ["classpath:/db/migration/common"]
 
   datastorage_type = p("credhub.data_storage.type")
@@ -54,12 +65,10 @@
       db_params.unshift(jdbc_driver)
       connection_url = sprintf "jdbc:%s://%s:%s/%s?autoReconnect=true", *db_params
 
-      application_config["spring"] = {
-        "datasource" => {
-          "username" => p('credhub.data_storage.username'),
-          "password" => '"' + p('credhub.data_storage.password') + '"', # force string type, guard against special char parsing
-          "url" => connection_url
-        }
+      application_config["spring"]["datasource"] = {
+        "username" => p('credhub.data_storage.username'),
+        "password" => (p('credhub.data_storage.password'),
+        "url" => connection_url
       }
 
       flyway_locations << "classpath:/db/migration/#{datastorage_type}"
@@ -67,99 +76,96 @@
     raise ArgumentError, 'credhub.data_storage.type must be set to "mysql", "postgres", or "in-memory".'
   end
 
-  if datastorage_type == "mysql"
-    datasource_url = application_config["spring"]["datasource"]["url"]
-
-    if_p("credhub.data_storage.require_tls") do |require_tls|
-      datasource_url << "&useSSL=true&requireSSL=true&verifyServerCertificate=true" if require_tls
-    end
-
-    if_p("credhub.data_storage.tls_ca") do |tls_cas|
-      datasource_url << "&trustCertificateKeyStorePassword=KEY_STORE_PASSWORD_PLACEHOLDER"
-      datasource_url << "&trustCertificateKeyStoreUrl=#{CREDHUB_CONF_DIR}/db_trust_store.jks"
-    end
-
-    application_config["spring"]["datasource"]["url"] = datasource_url
-  end
-
-  application_config["spring"]["jpa"] = {
-    "hibernate" => {
-      "ddl-auto" => "validate"
-    }
-  }
+#  # Mysql TLS Config
+#  if datastorage_type == "mysql"
+#    datasource_url = application_config["spring"]["datasource"]["url"]
+#
+#    if_p("credhub.data_storage.require_tls") do |require_tls|
+#      datasource_url << "&useSSL=true&requireSSL=true&verifyServerCertificate=true" if require_tls
+#    end
+#
+#    if_p("credhub.data_storage.tls_ca") do |tls_cas|
+#      datasource_url << "&trustCertificateKeyStorePassword=KEY_STORE_PASSWORD_PLACEHOLDER"
+#      datasource_url << "&trustCertificateKeyStoreUrl=#{CREDHUB_CONF_DIR}/db_trust_store.jks"
+#    end
+#
+#    application_config["spring"]["datasource"]["url"] = datasource_url
+#  end
 
   application_config["flyway"] = {
     "locations" => flyway_locations
   }
 
-  # Encryption Config
-
-  encryption_keys = p("credhub.encryption.keys")
-  encryption_providers = p("credhub.encryption.providers")
-  active_keys = encryption_keys.select {|key| key["active"]}
-
-  # technically not true: we only are not supporting migration between provider types, not names
-  # I can have two providers with different names but same type
-  if encryption_keys.collect{|k| k["provider_name"]}.uniq.count > 1
-    raise
-      "Data migration between encryption providers is not currently supported. Please update your manifest to use a single encryption provider."
-  end
-
-  if active_keys.empty? || active_keys.size > 1
-    raise
-      "Exactly one encryption key must be marked as active in the deployment manifest. Please update your configuration to proceed."
-  end
-
-  provider_types = encryption_providers.collect{|p| p["type"]}.uniq
-
-  if provider_types.select {|p| !["internal", "hsm", "dsm"]}.size != 0
-    raise
-      'The provided encryption provider type is not valid. Valid provider types are "hsm", "dsm", and "internal".'
-  end
-
-  def invalid_dev_key?(dev_key)
-    return false if dev_key.nil?
-    dev_key[/\H/] || dev_key.size != 32
-  end
-
-  active_provider = providers.select {|p| p["name"] == active_key["provider_name"]}.first["type"]
-
-  keys = encryption_keys.each do |k|
-    k.delete "provider_name"
-    k["encryption-key-name"] = k.delete "encryption_key_name" if k.key?("encryption_key_name")
-
-    if k.has_key?('dev_key') && k.has_key?('encryption_password')
-      raise "You must specify either an encryption_password or dev_key, not both. Please update your manifest and retry your request."
-    end
-
-    if k.key?("encryption_key_password")
-      if k['encryption_password'].nil? || k['encryption_password'].empty?
-        raise "credhub.encryption.encryption_password is not valid (must not be empty if provided)."
-      end
-
-      if k['encryption_password'].length < 20
-        raise "The encryption_password value must be at least 20 characters in length. Please update and redeploy."
-      end
-
-      k["encryption-key-password"] = k.delete "encryption_key_password"
-    end
-
-    if k.key?("dev_key")
-      if invalid_dev_key(k["dev_key"])
-        raise "credhub.encryption.dev_key is not valid (must be 128 bit hexadecimal string)."
-      end
-
-      k["dev-key"] = k.delete "dev_key"
-    end
-  end
-
-  application_config["encryption"] = {
-    "provider" => active_provider,
-    "keys" => keys
-  }
+#  # Encryption Config
+#
+#  encryption_keys = p("credhub.encryption.keys")
+#  encryption_providers = p("credhub.encryption.providers")
+#  active_keys = encryption_keys.select {|key| key["active"]}
+#
+#  # technically not true: we only are not supporting migration between provider types, not names
+#  # I can have two providers with different names but same type
+#  if encryption_keys.collect{|k| k["provider_name"]}.uniq.count > 1
+#    raise
+#      "Data migration between encryption providers is not currently supported. Please update your manifest to use a single encryption provider."
+#  end
+#
+#  if active_keys.empty? || active_keys.size > 1
+#    raise
+#      "Exactly one encryption key must be marked as active in the deployment manifest. Please update your configuration to proceed."
+#  end
+#
+#  provider_types = encryption_providers.collect{|p| p["type"]}.uniq
+#
+#  if provider_types.select {|p| !["internal", "hsm", "dsm"]}.size != 0
+#    raise
+#      'The provided encryption provider type is not valid. Valid provider types are "hsm", "dsm", and "internal".'
+#  end
+#
+#  def invalid_dev_key?(dev_key)
+#    return false if dev_key.nil?
+#    dev_key[/\H/] || dev_key.size != 32
+#  end
+#
+#  active_provider = providers.select {|p| p["name"] == active_key["provider_name"]}.first["type"]
+#
+#  keys = encryption_keys.each do |k|
+#    k.delete "provider_name"
+#    k["encryption-key-name"] = k.delete "encryption_key_name" if k.key?("encryption_key_name")
+#
+#    if k.has_key?('dev_key') && k.has_key?('encryption_password')
+#      raise "You must specify either an encryption_password or dev_key, not both. Please update your manifest and retry your request."
+#    end
+#
+#    if k.key?("encryption_key_password")
+#      if k['encryption_password'].nil? || k['encryption_password'].empty?
+#        raise "credhub.encryption.encryption_password is not valid (must not be empty if provided)."
+#      end
+#
+#      if k['encryption_password'].length < 20
+#        raise "The encryption_password value must be at least 20 characters in length. Please update and redeploy."
+#      end
+#
+#      k["encryption-key-password"] = k.delete "encryption_key_password"
+#    end
+#
+#    if k.key?("dev_key")
+#      if invalid_dev_key(k["dev_key"])
+#        raise "credhub.encryption.dev_key is not valid (must be 128 bit hexadecimal string)."
+#      end
+#
+#      k["dev-key"] = k.delete "dev_key"
+#    end
+#  end
+#
+#  application_config["encryption"] = {
+#    "provider" => active_provider,
+#    "keys" => keys
+#  }
 
   # Logging Config
-  application_config["logging"]["config"] = "#{CREDHUB_CONF_DIR}/log4j2.properties"
+  application_config["logging"] = {
+    "config" => "#{CREDHUB_CONF_DIR}/log4j2.properties"
+  }
 
   application_config.to_yaml
 %>
