@@ -3,4 +3,4 @@
 set -eu
 
 /var/vcap/jobs/database-backuper/bin/backup /var/vcap/jobs/credhub/config/database-backup-config.json
-cp /var/vcap/store/credhub_dbdump "$(ARTIFACT_DIRECTORY)"
+cp /var/vcap/store/credhub_dbdump "${ARTIFACT_DIRECTORY}"
