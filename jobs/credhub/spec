@@ -16,6 +16,7 @@ templates:
   application.yml.erb: config/application.yml
   log4j2.properties.erb: config/log4j2.properties
   encryption.conf.erb: config/encryption.conf
+  database-backup-config.json.erb: config/database-backup-config.json
 
 packages:
 - openjdk_1.8.0
